@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes, ChannelType, PermissionFlagsBits } = require('discord.js');
 
 const client = new Client({
     intents: [
@@ -14,8 +14,8 @@ client.once('ready', async () => {
 
     const commands = [
         new SlashCommandBuilder()
-            .setName('hakemkayitbaslat')
-            .setDescription('Hakem başvuru panelini seçilen kanala gönderir.')
+            .setName('ticketbaslat')
+            .setDescription('Ticket (Destek) panelini seçilen kanala gönderir.')
             .addChannelOption(option =>
                 option.setName('kanal')
                     .setDescription('Panelin gönderileceği kanal')
@@ -29,7 +29,7 @@ client.once('ready', async () => {
             Routes.applicationCommands(client.user.id),
             { body: commands },
         );
-        console.log('Slash komutları yüklendi.');
+        console.log('Ticket komutu yüklendi.');
     } catch (error) {
         console.error(error);
     }
@@ -38,7 +38,7 @@ client.once('ready', async () => {
 // Komut Çalıştırıldığında
 client.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
-        if (interaction.commandName === 'hakemkayitbaslat') {
+        if (interaction.commandName === 'ticketbaslat') {
             // Sunucu sahibi kontrolü
             if (interaction.user.id !== interaction.guild.ownerId) {
                 return interaction.reply({ content: 'Bu komutu yalnızca sunucu sahibi kullanabilir!', ephemeral: true });
@@ -47,40 +47,105 @@ client.on('interactionCreate', async interaction => {
             const targetChannel = interaction.options.getChannel('kanal');
 
             const embed = new EmbedBuilder()
-                .setTitle('🏆 Hakem Alım Sistemi')
-                .setDescription('Ligimizde hakem olmak istiyorsan aşağıdaki **Yetkili Alım** butonuna tıkla!')
-                .setColor('#2b2d31');
+                .setTitle('🎫 Destek ve Başvuru Sistemi')
+                .setDescription('İşlem yapmak istediğiniz kategoriye ait butona tıklayarak özel bilet (ticket) oluşturabilirsiniz.')
+                .setColor('#2b2d31')
+                .setFooter({ text: 'TTL | League Management' });
 
-            const row = new ActionRowBuilder().addComponents(
+            const row1 = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
-                    .setCustomId('hakem_basvuru_btn')
+                    .setCustomId('ticket_yetkili')
                     .setLabel('Yetkili Alım')
                     .setStyle(ButtonStyle.Primary)
-                    .setEmoji('📋')
+                    .setEmoji('🛡️'),
+                new ButtonBuilder()
+                    .setCustomId('ticket_event')
+                    .setLabel('Event / Çekiliş')
+                    .setStyle(ButtonStyle.Success)
+                    .setEmoji('🎉')
             );
 
-            // Seçilen kanala paneli gönder
-            await targetChannel.send({ embeds: [embed], components: [row] });
-            await interaction.reply({ content: `Başvuru paneli başarıyla ${targetChannel} kanalına gönderildi!`, ephemeral: true });
+            const row2 = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('ticket_partner')
+                    .setLabel('Partner')
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji('🤝'),
+                new ButtonBuilder()
+                    .setCustomId('ticket_reklam')
+                    .setLabel('Reklam')
+                    .setStyle(ButtonStyle.Danger)
+                    .setEmoji('📢')
+            );
+
+            await targetChannel.send({ embeds: [embed], components: [row1, row2] });
+            await interaction.reply({ content: `Ticket paneli başarıyla ${targetChannel} kanalına gönderildi!`, ephemeral: true });
         }
     }
 
-    // Butona Tıklandığında
+    // Buton Etkileşimleri
     if (interaction.isButton()) {
-        if (interaction.customId === 'hakem_basvuru_btn') {
-            await interaction.reply({ content: 'Başvuru talebiniz alındı! Yetkililer sizinle iletişime geçecektir.', ephemeral: true });
+        const categories = {
+            'ticket_yetkili': { name: 'yetkili-alim', title: 'Yetkili Alım Talebi' },
+            'ticket_event': { name: 'event-cekilis', title: 'Event / Çekiliş Talebi' },
+            'ticket_partner': { name: 'partner', title: 'Partnerlik Başvurusu' },
+            'ticket_reklam': { name: 'reklam', title: 'Reklam İşlemleri' }
+        };
 
-            // #hakemyetkili kanalına bildirim gönderme
-            const logChannel = interaction.guild.channels.cache.find(ch => ch.name === 'hakemyetkili');
-            if (logChannel) {
-                const logEmbed = new EmbedBuilder()
-                    .setTitle('📥 Yeni Hakem Başvurusu')
-                    .setDescription(`**Başvuran:** ${interaction.user} (${interaction.user.tag})\n**ID:** ${interaction.user.id}`)
-                    .setColor('#00FF00')
-                    .setTimestamp();
+        // Ticket Kapatma Butonu
+        if (interaction.customId === 'ticket_close') {
+            await interaction.reply({ content: 'Ticket kapatılıyor, kanal birazdan silinecek...', ephemeral: true });
+            setTimeout(async () => {
+                try {
+                    await interaction.channel.delete();
+                } catch (err) {
+                    console.error('Kanal silinemedi:', err);
+                }
+            }, 3000);
+            return;
+        }
 
-                await logChannel.send({ embeds: [logEmbed] });
-            }
+        const ticketData = categories[interaction.customId];
+        if (!ticketData) return;
+
+        await interaction.reply({ content: 'Biletiniz oluşturuluyor, lütfen bekleyin...', ephemeral: true });
+
+        try {
+            // Belirttiğin ID'li kategori altına özel kanal oluşturma
+            const channel = await interaction.guild.channels.create({
+                name: `${ticketData.name}-${interaction.user.username}`,
+                type: ChannelType.GuildText,
+                parent: '1555895488975474809', // Belirttiğin Kategori ID'si
+                permissionOverwrites: [
+                    {
+                        id: interaction.guild.id,
+                        denied: [PermissionFlagsBits.ViewChannel],
+                    },
+                    {
+                        id: interaction.user.id,
+                        allowed: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+                    },
+                ],
+            });
+
+            const welcomeEmbed = new EmbedBuilder()
+                .setTitle(ticketData.title)
+                .setDescription(`Merhaba ${interaction.user}, yetkililer kısa süre içinde sizinle ilgilenecektir.\nTalebinizi kapatmak için aşağıdaki **Kapat Ticket** butonunu kullanabilirsiniz.`)
+                .setColor('#00FF00');
+
+            const closeRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('ticket_close')
+                    .setLabel('Kapat Ticket')
+                    .setStyle(ButtonStyle.Danger)
+                    .setEmoji('🔒')
+            );
+
+            await channel.send({ content: `${interaction.user}`, embeds: [welcomeEmbed], components: [closeRow] });
+
+        } catch (error) {
+            console.error(error);
+            await interaction.followUp({ content: 'Kanal oluşturulurken bir hata oluştu! Kategori ID\'sini doğru girdiğinden emin ol.', ephemeral: true });
         }
     }
 });
