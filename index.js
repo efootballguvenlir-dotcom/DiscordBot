@@ -1,52 +1,88 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes } = require('discord.js');
 
-// Komut dinleyicisi
-client.on('messageCreate', async message => {
-    if (message.content === '.hakemkayitbaslat') {
-        // Sunucu sahibi kontrolü
-        if (message.author.id !== message.guild.ownerId) {
-            return message.reply('Bu komutu yalnızca sunucu sahibi kullanabilir!');
-        }
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
+});
 
-        const embed = new EmbedBuilder()
-            .setTitle('Hakem Alım Sistemi')
-            .setDescription('Hakem olmak için aşağıdaki butona tıklayın ve başvurunuzu başlatın!')
-            .setColor('Blue');
+// Bot aktif olduğunda slash komutlarını kaydedelim
+client.once('ready', async () => {
+    console.log(`Bot aktif: ${client.user.tag}`);
 
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('hakem_basvuru_btn')
-                .setLabel('Yetkili Alım')
-                .setStyle(ButtonStyle.Primary)
-                .setEmoji('📋')
+    const commands = [
+        new SlashCommandBuilder()
+            .setName('hakemkayitbaslat')
+            .setDescription('Hakem başvuru panelini seçilen kanala gönderir.')
+            .addChannelOption(option =>
+                option.setName('kanal')
+                    .setDescription('Panelin gönderileceği kanal')
+                    .setRequired(true)
+            )
+    ];
+
+    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+    try {
+        await rest.put(
+            Routes.applicationCommands(client.user.id),
+            { body: commands },
         );
-
-        // Komutun yazıldığı kanala paneli gönderir
-        await message.channel.send({ embeds: [embed], components: [row] });
+        console.log('Slash komutları yüklendi.');
+    } catch (error) {
+        console.error(error);
     }
 });
 
-// Butona tıklandığında özel mesaj (DM) gönderme
+// Komut Çalıştırıldığında
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isButton()) return;
+    if (interaction.isChatInputCommand()) {
+        if (interaction.commandName === 'hakemkayitbaslat') {
+            // Sunucu sahibi kontrolü
+            if (interaction.user.id !== interaction.guild.ownerId) {
+                return interaction.reply({ content: 'Bu komutu yalnızca sunucu sahibi kullanabilir!', ephemeral: true });
+            }
 
-    if (interaction.customId === 'hakem_basvuru_btn') {
-        try {
-            // Kullanıcıya özel mesaj gönderir
-            await interaction.user.send('Hakem başvurunuza hoş geldiniz! Lütfen formu doldurun...');
-            await interaction.reply({ content: 'Başvuru formu özel mesaj (DM) yoluyla gönderildi!', ephemeral: true });
-            
-            // #hakemyetkili kanalına bildirim düşme işlemi
+            const targetChannel = interaction.options.getChannel('kanal');
+
+            const embed = new EmbedBuilder()
+                .setTitle('🏆 Hakem Alım Sistemi')
+                .setDescription('Ligimizde hakem olmak istiyorsan aşağıdaki **Yetkili Alım** butonuna tıkla!')
+                .setColor('#2b2d31');
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('hakem_basvuru_btn')
+                    .setLabel('Yetkili Alım')
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji('📋')
+            );
+
+            // Seçilen kanala paneli gönder
+            await targetChannel.send({ embeds: [embed], components: [row] });
+            await interaction.reply({ content: `Başvuru paneli başarıyla ${targetChannel} kanalına gönderildi!`, ephemeral: true });
+        }
+    }
+
+    // Butona Tıklandığında
+    if (interaction.isButton()) {
+        if (interaction.customId === 'hakem_basvuru_btn') {
+            await interaction.reply({ content: 'Başvuru talebiniz alındı! Yetkililer sizinle iletişime geçecektir.', ephemeral: true });
+
+            // #hakemyetkili kanalına bildirim gönderme
             const logChannel = interaction.guild.channels.cache.find(ch => ch.name === 'hakemyetkili');
             if (logChannel) {
-                logChannel.send(`📥 ${interaction.user.tag} adlı kullanıcı hakem başvuru butonuna tıkladı.`);
+                const logEmbed = new EmbedBuilder()
+                    .setTitle('📥 Yeni Hakem Başvurusu')
+                    .setDescription(`**Başvuran:** ${interaction.user} (${interaction.user.tag})\n**ID:** ${interaction.user.id}`)
+                    .setColor('#00FF00')
+                    .setTimestamp();
+
+                await logChannel.send({ embeds: [logEmbed] });
             }
-        } catch (error) {
-            await interaction.reply({ content: 'Özel mesajlarınız kapalı olduğu için size ulaşamadık. Lütfen DM kutunuzu açın.', ephemeral: true });
         }
     }
 });
 
-
-
-        
+client.login(process.env.TOKEN);
